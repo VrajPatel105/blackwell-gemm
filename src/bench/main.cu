@@ -8,6 +8,8 @@
 #include "utils.cuh"
 #include <cstdio>
 #include <vector>
+#include <cstring>  
+#include <cstdlib>  
 using namespace std;
 
 struct Size { int M, N, K; };
@@ -26,7 +28,55 @@ static int choose_iterations(float one_launch_ms) {
 
 static constexpr int WARMUP = 5;
 
-int main() {
+struct Args {
+    int kernel_id = -1;
+    bool profile = false;
+    int size = 0;
+};
+
+static void usage(const char* prog) {
+    fprintf(stderr,
+        "usage: %s [kernel_id|all] [--size S] [--profile S]\n"
+        "  %s            run all kernels at the default sizes\n"
+        "  %s 0          run kernel 0 at the default sizes\n"
+        "  %s 0 --size 2048\n"
+        "  %s 0 --profile 4096   one launch only, for ncu\n",
+        prog, prog, prog, prog, prog);
+}
+
+static Args parse_args(int argc, char** argv) {
+    Args a;
+    for (int i = 1; i < argc; ++i) {
+        const char* s = argv[i];
+        if (strcmp(s, "--profile") == 0 && i + 1 < argc) {
+            a.profile = true;
+            a.size = atoi(argv[++i]);           // consumes the next argument
+        } else if (strcmp(s, "--size") == 0 && i + 1 < argc) {
+            a.size = atoi(argv[++i]);
+        } else if (strcmp(s, "all") == 0) {
+            a.kernel_id = -1;
+        } else if (s[0] >= '0' && s[0] <= '9') {
+            a.kernel_id = atoi(s);
+        } else {
+            usage(argv[0]);
+            exit(EXIT_FAILURE);
+        }
+    }
+    if (a.profile && a.kernel_id < 0) {
+        fprintf(stderr, "--profile needs a specific kernel id\n");
+        exit(EXIT_FAILURE);
+    }
+    if ((a.profile || a.size != 0) && a.size <= 0) {
+        fprintf(stderr, "size must be a positive integer\n");
+        exit(EXIT_FAILURE);
+    }
+    return a;
+}
+
+
+int main(int argc, char** argv) {
+
+    const Args args = parse_args(argc, argv);
     cublasHandle_t handle;
     CUBLAS_CHECK(cublasCreate(&handle));
     CUBLAS_CHECK(cublasSetMathMode(handle, CUBLAS_DEFAULT_MATH));
@@ -35,10 +85,52 @@ int main() {
     const float beta = 0.0f;
     bool any_fail = false;
 
+    // profile mode: exactly one launch of one kernel, nothing else (for ncu)
+    if (args.profile) {
+        const KernelEntry* entry = nullptr;
+        for (int i = 0; i < NUM_KERNELS; ++i)
+            if (KERNELS[i].id == args.kernel_id) entry = &KERNELS[i];
+        if (!entry) {
+            fprintf(stderr, "no kernel with id %d\n", args.kernel_id);
+            CUBLAS_CHECK(cublasDestroy(handle));
+            return 1;
+        }
+
+        const int M = args.size, N = args.size, K = args.size;
+        const size_t sizeA = size_t(M) * K;
+        const size_t sizeB = size_t(K) * N;
+        const size_t sizeC = size_t(M) * N;
+
+        vector<float> h_A(sizeA), h_B(sizeB);
+        fill_random(h_A.data(), sizeA, 42);
+        fill_random(h_B.data(), sizeB, 654);
+
+        float *d_A, *d_B, *d_out;
+        CUDA_CHECK(cudaMalloc(&d_A,   sizeof(float) * sizeA));
+        CUDA_CHECK(cudaMalloc(&d_B,   sizeof(float) * sizeB));
+        CUDA_CHECK(cudaMalloc(&d_out, sizeof(float) * sizeC));
+        CUDA_CHECK(cudaMemcpy(d_A, h_A.data(), sizeof(float) * sizeA, cudaMemcpyHostToDevice));
+        CUDA_CHECK(cudaMemcpy(d_B, h_B.data(), sizeof(float) * sizeB, cudaMemcpyHostToDevice));
+
+        fprintf(stderr, "profiling %s at %d^3 (single launch)\n", entry->name, args.size);
+        entry->fn(M, N, K, alpha, d_A, d_B, beta, d_out, 0);
+        CUDA_CHECK(cudaDeviceSynchronize());
+
+        CUDA_CHECK(cudaFree(d_A));
+        CUDA_CHECK(cudaFree(d_B));
+        CUDA_CHECK(cudaFree(d_out));
+        CUBLAS_CHECK(cublasDestroy(handle));
+        return 0;
+    }
+
+    vector<Size> sizes;
+    if (args.size > 0) sizes.push_back({args.size, args.size, args.size});
+    else               sizes.assign(begin(SIZES), end(SIZES));
+
     printf("id,name,M,N,K,pass,max_abs_err,max_rel_err,ms,tflops,"
            "cublas_ms,cublas_tflops,pct_cublas\n");
 
-    for (const Size& s : SIZES) {
+    for (const Size& s : sizes) {
         const int M = s.M, N = s.N, K = s.K;
         const size_t sizeA = size_t(M) * K;
         const size_t sizeB = size_t(K) * N;
@@ -77,6 +169,7 @@ int main() {
         // running our kernels
         for (int i = 0; i < NUM_KERNELS; ++i) {
             const KernelEntry& e = KERNELS[i];
+            if (args.kernel_id >= 0 && e.id != args.kernel_id) continue;
             fprintf(stderr, "  %-14s ... ", e.name);
 
             auto run_kernel = [&]() {
@@ -95,8 +188,8 @@ int main() {
                 fprintf(stderr, "FAIL (max_abs_err %.3e)\n", r.max_abs_err);
                     
                 printf("%d,%s,%d,%d,%d,0,%.6e,%.6e,,,%.6f,%.4f,\n",
-                       e.id, e.name, M, N, K, r.max_abs_err, r.max_rel_err,
-                       cublas_ms, cublas_tflops);
+                    e.id, e.name, M, N, K, r.max_abs_err, r.max_rel_err,
+                    cublas_ms, cublas_tflops);
                 continue;
             }
 
@@ -108,8 +201,8 @@ int main() {
 
             fprintf(stderr, "PASS  %.4f ms  %.3f TFLOP/s  %.2f%% of cuBLAS\n", ms, tflops, pct);
             printf("%d,%s,%d,%d,%d,1,%.6e,%.6e,%.6f,%.4f,%.6f,%.4f,%.2f\n",
-                   e.id, e.name, M, N, K, r.max_abs_err, r.max_rel_err,
-                   ms, tflops, cublas_ms, cublas_tflops, pct);
+                e.id, e.name, M, N, K, r.max_abs_err, r.max_rel_err,
+                ms, tflops, cublas_ms, cublas_tflops, pct);
         }
 
         // free up the bufferes
