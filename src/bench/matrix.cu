@@ -58,3 +58,11 @@ __host__ CheckResult compare(const float* ref, const float* out, int M, int N, i
     return CheckResult{max_abs_err, max_rel_err, flag_so_far};
 
 }
+
+static void print_matrix(const char* label, const float* h, int rows, int cols) {
+  printf("%s:\n", label);
+  for (int r = 0; r < rows; ++r) {
+    for (int c = 0; c < cols; ++c) printf("%9.4f ", h[size_t(r) * cols + c]);
+    printf("\n");
+  }
+}

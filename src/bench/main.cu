@@ -6,6 +6,7 @@
 #include <vector>
 using namespace std;
 
+
 int main() {
 
     cublasHandle_t handle;
@@ -15,9 +16,9 @@ int main() {
 
     float alpha = 1;
     float beta = 0;
-    int M = 200;
-    int N = 200;
-    int K = 100;
+    int M = 1000;
+    int N = 777;
+    int K = 513;
 
     // (M x K) (K x N) ==> M x N
     size_t sizeA = size_t(M) * K;
@@ -26,7 +27,7 @@ int main() {
 
 
     vector<float> h_A(sizeA);
-    fill_random(h_A.data(), sizeA, 42);   
+    fill_random(h_A.data(), sizeA, 42);
 
     vector<float> h_B(sizeB);
     fill_random(h_B.data(), sizeB, 654); 
@@ -46,15 +47,16 @@ int main() {
     cublas_sgemm(handle, M, N, K, alpha, d_A, d_B, beta, d_out);
     
     CUDA_CHECK(cudaMemcpy(h_ref.data(), d_out, sizeof(float) * sizeC, cudaMemcpyDeviceToHost));
-
+    
     cout << "Number" << " | " << "max_abs_err" << " | " << "max_rel_err" << " | " << "Status" << endl;
     for(int i = 0; i < NUM_KERNELS; i++){
         
         CUDA_CHECK(cudaMemset(d_out, 0xFF, sizeof(float) * sizeC)); // poisoning the c_out
         
         KERNELS[i].fn(M, N, K, alpha, d_A, d_B, beta, d_out, 0);
+        
         CUDA_CHECK(cudaDeviceSynchronize());
-
+        
         CUDA_CHECK(cudaMemcpy(h_out.data(), d_out, sizeof(float) * sizeC, cudaMemcpyDeviceToHost));
 
         CheckResult results = compare(h_ref.data(), h_out.data(), M, N, K);
