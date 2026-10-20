@@ -12,18 +12,18 @@ __global__ void sgemm_naive_kernel(size_t M, size_t N, size_t K, float alpha,
                             const float* __restrict__ A, const float* __restrict__ B, 
                             float beta, float* __restrict__ C){
 
-    const int row = blockIdx.x * blockDim.x + threadIdx.x;
-    const int col = blockIdx.y * blockDim.y + threadIdx.y;
+    const size_t row = blockIdx.x * blockDim.x + threadIdx.x;
+    const size_t col = blockIdx.y * blockDim.y + threadIdx.y;
 
     if(row >= M || col >= N) return;
 
     float accu = 0.0f;
-    for(int k = 0; k < K; ++k){
-        accu += A[ row * M + k] * B[ k * N + col];
+    for(size_t k = 0; k < K; ++k){
+        accu += A[ row * K + k] * B[ k * N + col];
     }
     
     float out = alpha * accu;
-    if(beta != 0.0f) out += beta * C[row * N * col];
+    if(beta != 0.0f) out += beta * C[row * N + col];
     C[row * N + col] = out;
 
 }
