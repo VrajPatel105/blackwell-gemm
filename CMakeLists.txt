@@ -16,6 +16,7 @@ add_executable(gemm
   src/bench/main.cu
   src/bench/matrix.cu
   src/bench/reference.cu
+  src/bench/timing.cu
   ${KERNEL_SRCS})
 target_include_directories(gemm PRIVATE include)
 target_compile_options(gemm PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:-lineinfo>)
