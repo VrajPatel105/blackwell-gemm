@@ -39,6 +39,7 @@ struct Args {
     int kernel_id = -1;
     bool profile = false;
     int size = 0;
+    bool csv = false;
 };
 
 static void usage(const char* prog) {
@@ -51,15 +52,54 @@ static void usage(const char* prog) {
         prog, prog, prog, prog, prog);
 }
 
+static void print_header(bool csv) {
+    if (csv) {
+        printf("id,name,M,N,K,pass,max_abs_err,max_rel_err,ms,tflops,"
+               "cublas_ms,cublas_tflops,pct_cublas\n");
+    } else {
+        printf("%-16s  %-14s  %-5s  %11s  %9s  %8s  %11s  %8s\n",
+               "size", "kernel", "check", "max_abs_err", "ms",
+               "TFLOP/s", "cuBLAS TF/s", "% cuBLAS");
+    }
+}
+
+// pass == false prints blanks for the timing columns
+static void print_row(bool csv, const KernelEntry& e, int M, int N, int K,
+                      const CheckResult& r, float ms, double tflops,
+                      float cublas_ms, double cublas_tflops, double pct) {
+    if (csv) {
+        if (r.pass)
+            printf("%d,%s,%d,%d,%d,1,%.6e,%.6e,%.6f,%.4f,%.6f,%.4f,%.2f\n",
+                   e.id, e.name, M, N, K, r.max_abs_err, r.max_rel_err,
+                   ms, tflops, cublas_ms, cublas_tflops, pct);
+        else
+            printf("%d,%s,%d,%d,%d,0,%.6e,%.6e,,,%.6f,%.4f,\n",
+                   e.id, e.name, M, N, K, r.max_abs_err, r.max_rel_err,
+                   cublas_ms, cublas_tflops);
+        return;
+    }
+    char size[32];
+    snprintf(size, sizeof(size), "%dx%dx%d", M, N, K);
+    if (r.pass)
+        printf("%-16s  %-14s  %-5s  %11.2e  %9.4f  %8.3f  %11.2f  %8.2f\n",
+               size, e.name, "PASS", r.max_abs_err, ms, tflops, cublas_tflops, pct);
+    else
+        printf("%-16s  %-14s  %-5s  %11.2e  %9s  %8s  %11.2f  %8s\n",
+               size, e.name, "FAIL", r.max_abs_err, "-", "-", cublas_tflops, "-");
+    fflush(stdout);   // show each row as soon as it's ready
+}
+
 static Args parse_args(int argc, char** argv) {
     Args a;
     for (int i = 1; i < argc; ++i) {
         const char* s = argv[i];
         if (strcmp(s, "--profile") == 0 && i + 1 < argc) {
             a.profile = true;
-            a.size = atoi(argv[++i]);           // consumes the next argument
+            a.size = atoi(argv[++i]);
         } else if (strcmp(s, "--size") == 0 && i + 1 < argc) {
             a.size = atoi(argv[++i]);
+        } else if (strcmp(s, "--csv") == 0) {
+            a.csv = true;
         } else if (strcmp(s, "all") == 0) {
             a.kernel_id = -1;
         } else if (s[0] >= '0' && s[0] <= '9') {
@@ -134,8 +174,7 @@ int main(int argc, char** argv) {
     if (args.size > 0) sizes.push_back({args.size, args.size, args.size});
     else               sizes.assign(begin(SIZES), end(SIZES));
 
-    printf("id,name,M,N,K,pass,max_abs_err,max_rel_err,ms,tflops,"
-           "cublas_ms,cublas_tflops,pct_cublas\n");
+    print_header(args.csv);
 
     for (const Size& s : sizes) {
         const int M = s.M, N = s.N, K = s.K;
@@ -143,8 +182,6 @@ int main(int argc, char** argv) {
         const size_t sizeB = size_t(K) * N;
         const size_t sizeC = size_t(M) * N;
         const double flops = 2.0 * M * N * K;
-
-        fprintf(stderr, "== size %dx%dx%d ==\n", M, N, K);
 
         // host buffers
         vector<float> h_A(sizeA), h_B(sizeB), h_ref(sizeC), h_out(sizeC);
@@ -177,7 +214,7 @@ int main(int argc, char** argv) {
         for (int i = 0; i < NUM_KERNELS; ++i) {
             const KernelEntry& e = KERNELS[i];
             if (args.kernel_id >= 0 && e.id != args.kernel_id) continue;
-            fprintf(stderr, "  %-14s ... ", e.name);
+
 
             auto run_kernel = [&]() {
                 e.fn(M, N, K, alpha, d_A, d_B, beta, d_out, 0);
@@ -192,11 +229,7 @@ int main(int argc, char** argv) {
 
             if (!r.pass) {
                 any_fail = true;
-                fprintf(stderr, "FAIL (max_abs_err %.3e)\n", r.max_abs_err);
-                    
-                printf("%d,%s,%d,%d,%d,0,%.6e,%.6e,,,%.6f,%.4f,\n",
-                    e.id, e.name, M, N, K, r.max_abs_err, r.max_rel_err,
-                    cublas_ms, cublas_tflops);
+                print_row(args.csv, e, M, N, K, r, 0, 0, cublas_ms, cublas_tflops, 0);
                 continue;
             }
 
@@ -206,10 +239,7 @@ int main(int argc, char** argv) {
             const double tflops = flops / (ms / 1e3) / 1e12;
             const double pct = tflops / cublas_tflops * 100.0;
 
-            fprintf(stderr, "PASS  %.4f ms  %.3f TFLOP/s  %.2f%% of cuBLAS\n", ms, tflops, pct);
-            printf("%d,%s,%d,%d,%d,1,%.6e,%.6e,%.6f,%.4f,%.6f,%.4f,%.2f\n",
-                e.id, e.name, M, N, K, r.max_abs_err, r.max_rel_err,
-                ms, tflops, cublas_ms, cublas_tflops, pct);
+            print_row(args.csv, e, M, N, K, r, ms, tflops, cublas_ms, cublas_tflops, pct);
         }
 
         // free up the bufferes
