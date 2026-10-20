@@ -1,96 +1,124 @@
+// main.cu: benchmark harness.
+// For each size: compute a cuBLAS reference, then for each kernel:
+// check correctness, and only if it passes, time it against cuBLAS.
+// CSV goes to stdout; progress and warnings go to stderr.
+
 #include "bench.cuh"
 #include "kernels.cuh"
 #include "utils.cuh"
-#include <iostream>
-#include <cmath>
+#include <cstdio>
 #include <vector>
 using namespace std;
 
+struct Size { int M, N, K; };
+
+static const Size SIZES[] = {
+    {1000, 777, 513},
+    {1024, 1024, 1024},
+    {2048, 2048, 2048},
+    {4096, 4096, 4096},
+};
+
+static int choose_iterations(float one_launch_ms) {
+    (void)one_launch_ms;
+    return 50;
+}
+
+static constexpr int WARMUP = 5;
 
 int main() {
-
     cublasHandle_t handle;
     CUBLAS_CHECK(cublasCreate(&handle));
     CUBLAS_CHECK(cublasSetMathMode(handle, CUBLAS_DEFAULT_MATH));
 
-    float alpha = 1;
-    float beta = 0;
-    int M = 1000;
-    int N = 777;
-    int K = 513;
+    const float alpha = 1.0f;
+    const float beta = 0.0f;
+    bool any_fail = false;
 
-    int warmup = 10;
-    int iterations = 50;
+    printf("id,name,M,N,K,pass,max_abs_err,max_rel_err,ms,tflops,"
+           "cublas_ms,cublas_tflops,pct_cublas\n");
 
-    // (M x K) (K x N) ==> M x N
-    size_t sizeA = size_t(M) * K;
-    size_t sizeB = size_t(N) * K;
-    size_t sizeC = size_t(M) * N;
+    for (const Size& s : SIZES) {
+        const int M = s.M, N = s.N, K = s.K;
+        const size_t sizeA = size_t(M) * K;
+        const size_t sizeB = size_t(K) * N;
+        const size_t sizeC = size_t(M) * N;
+        const double flops = 2.0 * M * N * K;
 
+        fprintf(stderr, "== size %dx%dx%d ==\n", M, N, K);
 
-    vector<float> h_A(sizeA);
-    fill_random(h_A.data(), sizeA, 42);
+        // host buffers
+        vector<float> h_A(sizeA), h_B(sizeB), h_ref(sizeC), h_out(sizeC);
+        fill_random(h_A.data(), sizeA, 42);
+        fill_random(h_B.data(), sizeB, 654);
 
-    vector<float> h_B(sizeB);
-    fill_random(h_B.data(), sizeB, 654); 
+        // device buffers
+        float *d_A, *d_B, *d_ref, *d_out;
+        CUDA_CHECK(cudaMalloc(&d_A,   sizeof(float) * sizeA));
+        CUDA_CHECK(cudaMalloc(&d_B,   sizeof(float) * sizeB));
+        CUDA_CHECK(cudaMalloc(&d_ref, sizeof(float) * sizeC));
+        CUDA_CHECK(cudaMalloc(&d_out, sizeof(float) * sizeC));
+        CUDA_CHECK(cudaMemcpy(d_A, h_A.data(), sizeof(float) * sizeA, cudaMemcpyHostToDevice));
+        CUDA_CHECK(cudaMemcpy(d_B, h_B.data(), sizeof(float) * sizeB, cudaMemcpyHostToDevice));
 
-    vector<float> h_ref(sizeC);
-    vector<float> h_out(sizeC);
-
-    float *d_A, *d_B, *d_out;
-
-    CUDA_CHECK(cudaMalloc(&d_A, sizeof(float) * sizeA));
-    CUDA_CHECK(cudaMalloc(&d_B, sizeof(float) * sizeB));
-    CUDA_CHECK(cudaMalloc(&d_out, sizeof(float) * sizeC));
-
-    CUDA_CHECK(cudaMemcpy(d_A, h_A.data(), sizeof(float) * sizeA, cudaMemcpyHostToDevice));
-    CUDA_CHECK(cudaMemcpy(d_B, h_B.data(), sizeof(float) * sizeB, cudaMemcpyHostToDevice));
-
-    float ms_cublas = time_kernels([&](){
-        cublas_sgemm(handle, M, N, K, alpha, d_A, d_B, beta, d_out);},
-        warmup, iterations
-    );
-    // convert ms to second
-    float seconds_cublass = ms_cublas / 1000;
-    
-    CUDA_CHECK(cudaMemcpy(h_ref.data(), d_out, sizeof(float) * sizeC, cudaMemcpyDeviceToHost));
-    
-    cout << "Number" << " | " << "max_abs_err" << " | " << "max_rel_err" << " | " << "Status" <<
-         " | " << "raw_ms_custom" << " | " << "raw_ms_cublass" << " | " << " | " << "tflops_custom" << " | " << "tflops_cublass" <<
-        " | " << "percentage_of_cublass" << endl;
-    for(int i = 0; i < NUM_KERNELS; i++){
-        
-        CUDA_CHECK(cudaMemset(d_out, 0xFF, sizeof(float) * sizeC)); // poisoning the c_out
-
-        float ms_custom = time_kernels([&]() {
-            KERNELS[i].fn(M, N, K, alpha, d_A, d_B, beta, d_out, 0);},
-            warmup, iterations
-        );
-        // convert ms to second
-        float seconds_custom = ms_custom / 1000;
-
+        // reference run from cublass
+        auto run_cublas = [&]() {
+            cublas_sgemm(handle, M, N, K, alpha, d_A, d_B, beta, d_ref);
+        };
+        run_cublas();
         CUDA_CHECK(cudaDeviceSynchronize());
-        
-        CUDA_CHECK(cudaMemcpy(h_out.data(), d_out, sizeof(float) * sizeC, cudaMemcpyDeviceToHost));
+        CUDA_CHECK(cudaMemcpy(h_ref.data(), d_ref, sizeof(float) * sizeC, cudaMemcpyDeviceToHost));
 
-        CheckResult results = compare(h_ref.data(), h_out.data(), M, N, K);
-        string status = "PASS";
-        if(results.pass == 0) status = "FAIL";
+        // timing cublas stats
+        const float cublas_est_ms = time_kernels(run_cublas, 1, 1);
+        const float cublas_ms = time_kernels(run_cublas, WARMUP, choose_iterations(cublas_est_ms));
+        const double cublas_tflops = flops / (cublas_ms / 1e3) / 1e12;
 
-        //check and find the TFLOP/s and compare with cublas on howw much %
-        double flops = 2 * size_t(M) * N * K;
-        double tflops_custom = flops / seconds_custom / 1e12;
-        double tflops_cublass = flops / seconds_cublass / 1e12;
+        // running our kernels
+        for (int i = 0; i < NUM_KERNELS; ++i) {
+            const KernelEntry& e = KERNELS[i];
+            fprintf(stderr, "  %-14s ... ", e.name);
 
-        double percentage_of_cublass = tflops_custom / tflops_cublass * 100;
+            auto run_kernel = [&]() {
+                e.fn(M, N, K, alpha, d_A, d_B, beta, d_out, 0);
+            };
 
-        cout << KERNELS[i].name << " | " << results.max_abs_err << " | " << results.max_rel_err << " | " << status << " | " 
-        << ms_custom << " | " << ms_cublas << " | " << tflops_custom << " | " << tflops_cublass << " | " <<  percentage_of_cublass <<  endl;
+            // poisoning the d_out
+            CUDA_CHECK(cudaMemset(d_out, 0xFF, sizeof(float) * sizeC));
+            run_kernel();
+            CUDA_CHECK(cudaDeviceSynchronize());
+            CUDA_CHECK(cudaMemcpy(h_out.data(), d_out, sizeof(float) * sizeC, cudaMemcpyDeviceToHost));
+            const CheckResult r = compare(h_ref.data(), h_out.data(), M, N, K);
+
+            if (!r.pass) {
+                any_fail = true;
+                fprintf(stderr, "FAIL (max_abs_err %.3e)\n", r.max_abs_err);
+                    
+                printf("%d,%s,%d,%d,%d,0,%.6e,%.6e,,,%.6f,%.4f,\n",
+                       e.id, e.name, M, N, K, r.max_abs_err, r.max_rel_err,
+                       cublas_ms, cublas_tflops);
+                continue;
+            }
+
+            // timing the passed kernels
+            const float est_ms = time_kernels(run_kernel, 1, 1);
+            const float ms = time_kernels(run_kernel, WARMUP, choose_iterations(est_ms));
+            const double tflops = flops / (ms / 1e3) / 1e12;
+            const double pct = tflops / cublas_tflops * 100.0;
+
+            fprintf(stderr, "PASS  %.4f ms  %.3f TFLOP/s  %.2f%% of cuBLAS\n", ms, tflops, pct);
+            printf("%d,%s,%d,%d,%d,1,%.6e,%.6e,%.6f,%.4f,%.6f,%.4f,%.2f\n",
+                   e.id, e.name, M, N, K, r.max_abs_err, r.max_rel_err,
+                   ms, tflops, cublas_ms, cublas_tflops, pct);
+        }
+
+        // free up the bufferes
+        CUDA_CHECK(cudaFree(d_A));
+        CUDA_CHECK(cudaFree(d_B));
+        CUDA_CHECK(cudaFree(d_ref));
+        CUDA_CHECK(cudaFree(d_out));
     }
 
-    cudaFree(d_A);
-    cudaFree(d_B);
-    cudaFree(d_out);
-    cublasDestroy(handle);
-    return 0;
+    CUBLAS_CHECK(cublasDestroy(handle));
+    return any_fail ? 1 : 0;
 }
