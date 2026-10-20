@@ -22,8 +22,15 @@ static const Size SIZES[] = {
 };
 
 static int choose_iterations(float one_launch_ms) {
-    (void)one_launch_ms;
-    return 50;
+    constexpr float TARGET_MS = 200.0f;
+    constexpr int   MIN_ITERS = 5;
+    constexpr int   MAX_ITERS = 10000;
+
+    if (one_launch_ms <= 0.0f) return MAX_ITERS;
+    int iters = int(TARGET_MS / one_launch_ms);
+    if (iters < MIN_ITERS) iters = MIN_ITERS;
+    if (iters > MAX_ITERS) iters = MAX_ITERS;
+    return iters;
 }
 
 static constexpr int WARMUP = 5;
