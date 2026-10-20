@@ -17,11 +17,15 @@ add_executable(gemm
   src/bench/matrix.cu
   src/bench/reference.cu
   src/bench/timing.cu
+  src/bench/ceilings.cu
   ${KERNEL_SRCS})
 target_include_directories(gemm PRIVATE include)
 target_compile_options(gemm PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:-lineinfo>)
 target_link_libraries(gemm PRIVATE CUDA::cublas)
 
-add_executable(ceilings src/bench/ceilings.cu)
+add_executable(ceilings
+  src/bench/ceilings.cu
+  src/bench/timing.cu
+  src/bench/reference.cu)
 target_include_directories(ceilings PRIVATE include)
 target_link_libraries(ceilings PRIVATE CUDA::cublas)
