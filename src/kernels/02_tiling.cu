@@ -23,8 +23,18 @@ __global__ void sgemm_tiling_kernel(size_t M, size_t N, size_t K, float alpha, c
 
     for(size_t ph = 0; ph < K / TILE_WIDTH; ++ph){
 
-        Mds[ty][tx] = A[row * M + ph * TILE_WIDTH + tx];
-        Nds[ty][tx] = B[(ph * TILE_WIDTH + ty) * N + col];
+        if((row < M) && (ph * TILE_WIDTH + tx) < K){
+            Mds[ty][tx] = A[row * M + ph * TILE_WIDTH + tx];
+        }
+        else{
+            Mds[ty][tx] = 0.0f;
+        }
+        if((ph * TILE_WIDTH + ty) < K && (col < N)){
+            Nds[ty][tx] = B[(ph * TILE_WIDTH + ty) * N + col];
+        }
+        else{
+            Nds[ty][tx] = 0.0f;
+        }
         __syncthreads();
 
         for(size_t k = 0; k < TILE_WIDTH; ++k){
@@ -33,9 +43,10 @@ __global__ void sgemm_tiling_kernel(size_t M, size_t N, size_t K, float alpha, c
         __syncthreads();
 
     }
-
-    C[row * K + col] = Pvalue;
-
+    if((row < M) && (col < N)){
+        C[row * K + col] = Pvalue;
+    }
+    
     }
 
 } // namespace
