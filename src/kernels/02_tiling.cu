@@ -6,7 +6,7 @@
 
 namespace{
 
-constexpr int TILE_WIDTH = 4;
+constexpr int TILE_WIDTH = 32;
 
 __global__ void sgemm_tiling_kernel(size_t M, size_t N, size_t K, float alpha, const float* __restrict__ A, const float* __restrict__ B, float beta, float* __restrict__ C){
 
@@ -21,10 +21,10 @@ __global__ void sgemm_tiling_kernel(size_t M, size_t N, size_t K, float alpha, c
 
     float Pvalue = 0.0f;
 
-    for(size_t ph = 0; ph < K / TILE_WIDTH; ++ph){
+    for (size_t ph = 0; ph < (K + TILE_WIDTH - 1) / TILE_WIDTH; ++ph){
 
         if((row < M) && (ph * TILE_WIDTH + tx) < K){
-            Mds[ty][tx] = A[row * M + ph * TILE_WIDTH + tx];
+            Mds[ty][tx] = A[row * K + (ph * TILE_WIDTH + tx)];
         }
         else{
             Mds[ty][tx] = 0.0f;
@@ -43,8 +43,11 @@ __global__ void sgemm_tiling_kernel(size_t M, size_t N, size_t K, float alpha, c
         __syncthreads();
 
     }
-    if((row < M) && (col < N)){
-        C[row * K + col] = Pvalue;
+
+    if (row < M && col < N) {
+        size_t idx = row * N + col;
+        C[idx] = alpha * Pvalue
+            + (beta == 0.0f ? 0.0f : beta * C[idx]);
     }
     
     }
@@ -55,7 +58,10 @@ __global__ void sgemm_tiling_kernel(size_t M, size_t N, size_t K, float alpha, c
 void sgemm_02_tiling(int M, int N, int K, float alpha, const float* A, const float* B, float beta, float* C, cudaStream_t stream){
 
     const dim3 block(TILE_WIDTH, TILE_WIDTH);
-    const dim3 grid((N / TILE_WIDTH), (M / TILE_WIDTH));
+    const dim3 grid(
+        (N + TILE_WIDTH - 1) / TILE_WIDTH,
+        (M + TILE_WIDTH - 1) / TILE_WIDTH
+    );
     sgemm_tiling_kernel<<<grid, block, 0, stream>>>(M, N, K, alpha, A, B, beta, C);
     CUDA_CHECK(cudaGetLastError());
 }
