@@ -39,3 +39,12 @@ void sgemm_00_naive(int M, int N, int K, float alpha, const float* A,
     CUDA_CHECK(cudaGetLastError());
 
 }
+
+// output 
+
+// size              kernel          check  max_abs_err         ms   TFLOP/s  cuBLAS TF/s  % cuBLAS
+// 1000x777x513      naive           PASS      3.24e-05     5.8065     0.137         3.05      4.50
+// 1024x1024x1024    naive           PASS      8.39e-05    34.4608     0.062         5.68      1.10
+// 2048x2048x2048    naive           PASS      1.75e-04   383.9169     0.045         4.10      1.09
+// 4096x4096x4096    naive           PASS      0.00e+00   869.4537     0.158         5.04      3.14
+// 8192x8192x8192    naive           PASS      0.00e+00  7485.0913     0.147         1.64      8.98

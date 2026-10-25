@@ -41,3 +41,12 @@ void sgemm_01_coalesced(int M, int N, int K, float alpha, const float* A,
     CUDA_CHECK(cudaGetLastError());
 
 }
+
+// outpout
+
+// size              kernel          check  max_abs_err         ms   TFLOP/s  cuBLAS TF/s  % cuBLAS
+// 1000x777x513      coalesced       PASS      3.24e-05     4.2032     0.190         3.67      5.17
+// 1024x1024x1024    coalesced       PASS      8.39e-05     2.5677     0.836         4.43     18.86
+// 2048x2048x2048    coalesced       PASS      1.75e-04    31.4632     0.546         6.03      9.06
+// 4096x4096x4096    coalesced       PASS      0.00e+00   470.2791     0.292         3.85      7.59
+// 8192x8192x8192    coalesced       PASS      0.00e+00  11480.3076     0.096         3.21      2.98
