@@ -26,6 +26,9 @@ __global__ void gemm_1d_thread_tiling_kernel(size_t M, size_t N, size_t K, float
     const int row = BLOCK_M * by + COARSE_FACTOR * (tx / BLOCK_M);
     const int col = BLOCK_N * bx + (tx % BLOCK_N);
 
+    const int tile_col  = tx % BLOCK_N;
+    const int tile_row0 = COARSE_FACTOR * (tx / BLOCK_N);  
+
     __shared__ float shared_mem_A[BLOCK_M][BLOCK_K];
     __shared__ float shared_mem_B[BLOCK_K][BLOCK_N];
 
@@ -56,23 +59,25 @@ __global__ void gemm_1d_thread_tiling_kernel(size_t M, size_t N, size_t K, float
         __syncthreads();
 
         // final k loop that will calculate the output
-
-        for(int k = 0; k < BLOCK_K; k++){
-
-            float B_value_register = shared_mem_B[k][B_view_tx];
-
-            for(int c = 0; c < COARSE_FACTOR; c++){
-                Pvalue[c] +=  shared_mem_A[B_view_ty * COARSE_FACTOR + c][k] * B_value_register;
+        for (int k = 0; k < BLOCK_K; k++) {
+            float B_value_register = shared_mem_B[k][tile_col];
+            for (int c = 0; c < COARSE_FACTOR; c++) {
+                Pvalue[c] += shared_mem_A[tile_row0 + c][k] * B_value_register;  // A for each of MY 8 rows
             }
         }
+
         __syncthreads();
 
     }
 
-    if (row < M && col < N) {
-    size_t idx = row * N + col;
-    C[idx] = alpha * Pvalue[]
-        + (beta == 0.0f ? 0.0f : beta * C[idx]);
+    for (int c = 0; c < COARSE_FACTOR; c++) {
+        const int r = row + c; // the row of this output
+        if (r < M && col < N) {
+            const size_t idx = size_t(r) * N + col;
+            float out = alpha * Pvalue[c];
+            if (beta != 0.0f) out += beta * C[idx];
+            C[idx] = out;
+        }
     }
 
 }
