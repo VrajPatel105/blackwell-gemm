@@ -33,11 +33,25 @@ __global__ void gemm_1d_thread_tiling_kernel(size_t M, size_t N, size_t K, float
 
     for(int ph = 0; ph < ceil(K / BLOCK_K); ph++){
 
-        shared_mem_A[A_view_ty][A_view_tx] = A[by * BLOCK_M + A_view_ty] * K + (ph * BLOCK_K + A_view_tx);
+        if((by * BLOCK_M + A_view_ty < M) && ((ph * BLOCK_K + A_view_tx) < K)){
+            shared_mem_A[A_view_ty][A_view_tx] = A[by * BLOCK_M + A_view_ty] * K + (ph * BLOCK_K + A_view_tx);
+        }
+        else{
+            shared_mem_A[A_view_ty][A_view_tx] = 0.0f;
+        }
 
-        shared_mem_B[B_view_ty][B_view_tx] = B[ph * BLOCK_K + B_view_ty] * K + (bx * BLOCK_N + B_view_tx);
+        if((ph * BLOCK_K + B_view_ty) < K && (bx * BLOCK_N + B_view_tx) < N){
+            shared_mem_B[B_view_ty][B_view_tx] = B[ph * BLOCK_K + B_view_ty] * K + (bx * BLOCK_N + B_view_tx);
+        }
+        else{
+            shared_mem_B[B_view_ty][B_view_tx] = 0.0f;
+        }
 
         __syncthreads();
+
+        
+
+
 
     }
 
