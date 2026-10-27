@@ -49,7 +49,18 @@ __global__ void gemm_1d_thread_tiling_kernel(size_t M, size_t N, size_t K, float
 
         __syncthreads();
 
-        
+        // final k loop that will calculate the output
+
+        for(int k = 0; k < K; k++){
+
+            float B_value_register = shared_mem_B[k][B_view_tx];
+
+            for(int c = 0; c < COARSE_FACTOR; c++){
+                value[c] +=  shared_mem_A[B_view_ty * COARSE_FACTOR + c][k] * B_value_register;
+            }
+            __syncthreads();
+
+        }
 
 
 
