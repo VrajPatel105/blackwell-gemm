@@ -29,19 +29,25 @@ __global__ void gemm_1d_thread_tiling_kernel(size_t M, size_t N, size_t K, float
     __shared__ float shared_mem_A[BLOCK_M][BLOCK_K];
     __shared__ float shared_mem_B[BLOCK_K][BLOCK_N];
 
-    float value[COARSE_FACTOR] = {0.0f};
+    float Pvalue[COARSE_FACTOR] = {0.0f};
 
-    for(int ph = 0; ph < ceil(K / BLOCK_K); ph++){
+    for(int ph = 0; ph < ceil(float(K / BLOCK_K)); ph++){
 
-        if((by * BLOCK_M + A_view_ty < M) && ((ph * BLOCK_K + A_view_tx) < K)){
-            shared_mem_A[A_view_ty][A_view_tx] = A[by * BLOCK_M + A_view_ty] * K + (ph * BLOCK_K + A_view_tx);
+        size_t A_global_row = by * BLOCK_M + A_view_ty;
+        size_t A_global_col = ph * BLOCK_K + A_view_tx;
+
+        if((A_global_row < M) && (A_global_row < K)){
+            shared_mem_A[A_view_ty][A_view_tx] = A[A_global_row * K + A_global_row];
         }
         else{
             shared_mem_A[A_view_ty][A_view_tx] = 0.0f;
         }
 
-        if((ph * BLOCK_K + B_view_ty) < K && (bx * BLOCK_N + B_view_tx) < N){
-            shared_mem_B[B_view_ty][B_view_tx] = B[ph * BLOCK_K + B_view_ty] * K + (bx * BLOCK_N + B_view_tx);
+        size_t B_global_row = ph * BLOCK_K + B_view_ty;
+        size_t B_global_col = bx * BLOCK_N + B_view_tx;
+
+        if((B_global_row < K) && (B_global_col < N)){
+            shared_mem_B[B_view_ty][B_view_tx] = B[B_global_row * K + B_global_col];
         }
         else{
             shared_mem_B[B_view_ty][B_view_tx] = 0.0f;
@@ -56,14 +62,18 @@ __global__ void gemm_1d_thread_tiling_kernel(size_t M, size_t N, size_t K, float
             float B_value_register = shared_mem_B[k][B_view_tx];
 
             for(int c = 0; c < COARSE_FACTOR; c++){
-                value[c] +=  shared_mem_A[B_view_ty * COARSE_FACTOR + c][k] * B_value_register;
+                Pvalue[c] +=  shared_mem_A[B_view_ty * COARSE_FACTOR + c][k] * B_value_register;
             }
             __syncthreads();
 
         }
 
+    }
 
-
+    if (row < M && col < N) {
+    size_t idx = row * N + col;
+    C[idx] = alpha * Pvalue[]
+        + (beta == 0.0f ? 0.0f : beta * C[idx]);
     }
 
 }
