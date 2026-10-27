@@ -17,11 +17,11 @@ __global__ void gemm_1d_thread_tiling_kernel(size_t M, size_t N, size_t K, float
     const int by = blockIdx.y;
     const int tx = threadIdx.x;
 
-    const int  A_view_ty = tx / BLOCK_N;
-    const int A_view_tx = tx % BLOCK_N;
+    const int  A_view_ty = tx / BLOCK_K;
+    const int A_view_tx = tx % BLOCK_K;
 
-    const int B_view_ty =  tx / BLOCK_K;
-    const int B_view_tx = tx % BLOCK_K;
+    const int B_view_ty =  tx / BLOCK_N;
+    const int B_view_tx = tx % BLOCK_N;
 
     const int row = BLOCK_M * by + COARSE_FACTOR * (tx / BLOCK_M);
     const int col = BLOCK_N * bx + (tx % BLOCK_N);
@@ -31,7 +31,7 @@ __global__ void gemm_1d_thread_tiling_kernel(size_t M, size_t N, size_t K, float
 
     float Pvalue[COARSE_FACTOR] = {0.0f};
 
-    for(int ph = 0; ph < ceil(float(K / BLOCK_K)); ph++){
+    for(int ph = 0; ph < ceil_div(K, BLOCK_K); ph++){
 
         size_t A_global_row = by * BLOCK_M + A_view_ty;
         size_t A_global_col = ph * BLOCK_K + A_view_tx;
@@ -57,16 +57,15 @@ __global__ void gemm_1d_thread_tiling_kernel(size_t M, size_t N, size_t K, float
 
         // final k loop that will calculate the output
 
-        for(int k = 0; k < K; k++){
+        for(int k = 0; k < BLOCK_K; k++){
 
             float B_value_register = shared_mem_B[k][B_view_tx];
 
             for(int c = 0; c < COARSE_FACTOR; c++){
                 Pvalue[c] +=  shared_mem_A[B_view_ty * COARSE_FACTOR + c][k] * B_value_register;
             }
-            __syncthreads();
-
         }
+        __syncthreads();
 
     }
 
