@@ -99,3 +99,5 @@ void sgemm_03_1d_thread_tiling(int M, int N, int K, float alpha, const float* A,
 // 2048x2048x2048    1d_thread       PASS      1.75e-04     1.9838     8.660        22.54     38.42
 // 4096x4096x4096    1d_thread       PASS      0.00e+00    16.1826     8.493        22.94     37.03
 // 8192x8192x8192    1d_thread       PASS      0.00e+00   152.0284     7.232        24.60     29.41
+
+// I think the last two results for 4096 and 8192 says that it hit the l2 cache hit rate
