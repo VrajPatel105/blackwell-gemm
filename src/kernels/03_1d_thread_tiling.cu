@@ -26,18 +26,25 @@ __global__ void gemm_1d_thread_tiling_kernel(size_t M, size_t N, size_t K, float
     const int row = BLOCK_M * by + COARSE_FACTOR * (tx / BLOCK_M);
     const int col = BLOCK_N * bx + (tx % BLOCK_N);
 
-    const int tile_col  = tx % BLOCK_N;
-    const int tile_row0 = COARSE_FACTOR * (tx / BLOCK_N);  
+    const int tile_col  = tx % BLOCK_N; // this is used for the main accumulator loop where the thread's column decides which column of B's shared tile. 
+    const int tile_row0 = COARSE_FACTOR * (tx / BLOCK_N);// the thread's row decides which row of A's shared tile
 
     __shared__ float shared_mem_A[BLOCK_M][BLOCK_K];
     __shared__ float shared_mem_B[BLOCK_K][BLOCK_N];
 
     float Pvalue[COARSE_FACTOR] = {0.0f};
-
+    // Each phase here is representing the computation between the inner dimension (k dim)
+    // when we matmul, the inner dimensions of A's and B's tile gets product and those inner dimension values are very big most of the times.
+    // for example, if we take 4096 x 512 and 512 x 4096, 512 is the inner dimension, and we cannot load 512 elements all at once in shared memory which is why,
+    // we break them down in phases. so here, there will be about 512 / BLOCK_k = 512 / 32 (for ex), so here there are a total of 16 phases. 
+    // (we usually keep the block's inner dimension BLOCK_K smalller, therefore )if BLOCK_K is 8, then it will be 512 / 8 = 64 phases 
     for(int ph = 0; ph < ceil_div(K, BLOCK_K); ph++){
 
+        // here, A_global_row is basically the Matrix A's row and same goes for col and B_global_row and col for Matrix B
         size_t A_global_row = by * BLOCK_M + A_view_ty;
         size_t A_global_col = ph * BLOCK_K + A_view_tx;
+
+        // shared_mem_A will load at the A block's row and col which we have calculated earlier above
 
         if((A_global_row < M) && (A_global_col < K)){
             shared_mem_A[A_view_ty][A_view_tx] = A[A_global_row * K + A_global_col];
@@ -70,6 +77,7 @@ __global__ void gemm_1d_thread_tiling_kernel(size_t M, size_t N, size_t K, float
 
     }
 
+    // writing the final finished outputs to c
     for (int c = 0; c < COARSE_FACTOR; c++) {
         const int r = row + c; // the row of this output
         if (r < M && col < N) {
