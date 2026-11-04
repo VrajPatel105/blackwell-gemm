@@ -17,11 +17,11 @@ __global__ void gemm_1d_thread_tiling_kernel(size_t M, size_t N, size_t K, float
     const int by = blockIdx.y;
     const int tx = threadIdx.x;
 
-    const int  A_view_ty = tx / BLOCK_K;
-    const int A_view_tx = tx % BLOCK_K;
+    const int  A_view_ty = tx / BLOCK_K; // this is the row the thread is in for A 
+    const int A_view_tx = tx % BLOCK_K; // this is the col the thread is in for A
 
-    const int B_view_ty =  tx / BLOCK_N;
-    const int B_view_tx = tx % BLOCK_N;
+    const int B_view_ty =  tx / BLOCK_N; // row the thread is in for B 
+    const int B_view_tx = tx % BLOCK_N; // col the thread is in for B
 
     const int row = BLOCK_M * by + COARSE_FACTOR * (tx / BLOCK_M);
     const int col = BLOCK_N * bx + (tx % BLOCK_N);
