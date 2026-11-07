@@ -24,6 +24,8 @@ __global__ void practice_1d_tiling_kernel(size_t M, size_t N, size_t MATRIX_INNE
     int sharedB_row = tx / BLOCK_Y;
     int sharedB_col = tx % BLOCK_Y;
     
+    int tile_col =
+
     __shared__ float sharedA[BLOCK_X][BLOCK_INNER_DIM];
     __shared__ float sharedB[BLOCK_INNER_DIM][BLOCK_Y];
 
@@ -36,9 +38,16 @@ __global__ void practice_1d_tiling_kernel(size_t M, size_t N, size_t MATRIX_INNE
         sharedA[sharedA_row][sharedA_col] = A[(by * BLOCK_X + sharedA_row) * MATRIX_INNER_DIM + (ph * BLOCK_INNER_DIM + sharedA_col)];
         sharedB[sharedB_row][sharedB_col] = B[(ph * BLOCK_INNER_DIM + sharedB_row) * N + (bx * BLOCK_Y + sharedB_col)];
         __syncthreads();
+
+
+        for(int k = 0; k < BLOCK_INNER_DIM; k++){
+            float B_value_register = sharedB[k][tile_col];
+        }
+
         
     }
-
+    // final c loop
+    for()
 
 }
 } 
