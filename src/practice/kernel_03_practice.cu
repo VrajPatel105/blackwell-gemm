@@ -12,7 +12,7 @@ int BLOCK_INNER_DIM = 8;
 int COARSE_FACTOR = 4;
 int NUM_THREADS = BLOCK_X * BLOCK_Y / COARSE_FACTOR;
 
-__global__ void practice_1d_tiling_kernel(size_t M, size_t N, size_t MATRIX_INNER_DIM, float alpha, const float* A, const float* B, float beta, const float* C){
+__global__ void practice_1d_tiling_kernel(size_t M, size_t N, size_t MATRIX_INNER_DIM, float alpha, const float* A, const float* B, float beta, float* C){
 
     int bx = blockIdx.x;
     int by = blockIdx.y;
@@ -24,7 +24,9 @@ __global__ void practice_1d_tiling_kernel(size_t M, size_t N, size_t MATRIX_INNE
     int sharedB_row = tx / BLOCK_Y;
     int sharedB_col = tx % BLOCK_Y;
     
-    int tile_col =
+    int tile_col = tx % BLOCK_Y;
+    int tile_row0 = COARSE_FACTOR * (tx / BLOCK_Y);
+
 
     __shared__ float sharedA[BLOCK_X][BLOCK_INNER_DIM];
     __shared__ float sharedB[BLOCK_INNER_DIM][BLOCK_Y];
@@ -42,12 +44,22 @@ __global__ void practice_1d_tiling_kernel(size_t M, size_t N, size_t MATRIX_INNE
 
         for(int k = 0; k < BLOCK_INNER_DIM; k++){
             float B_value_register = sharedB[k][tile_col];
+            for(int c = 0; c < COARSE_FACTOR; c++){
+                Pvalue[c] += sharedA[tile_row0 + c][k] * B_value_register;
+            }
         }
 
+        __syncthreads();
         
     }
-    // final c loop
-    for()
+
+    int row =  (tx / BLOCK_X) * COARSE_FACTOR + by * BLOCK_X;
+    int col = bx * BLOCK_Y + (tx % BLOCK_Y);
+    
+    for(int c = 0; c < COARSE_FACTOR; c++){
+        int idx = (row + c) * MATRIX_INNER_DIM + col;
+        C[idx] = Pvalue[c];
+    }
 
 }
 } 
