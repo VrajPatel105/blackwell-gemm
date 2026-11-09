@@ -70,13 +70,13 @@ __global__ void sgemm_2d_thread_tiling_kernel(size_t M, size_t N, size_t K, floa
         for(size_t k = 0; k < BLOCK_K; k++){
             
             // fill A registers
-            float A_registers[COARSE_FACTOR_ROW]; 
+            float A_registers[COARSE_FACTOR_ROW] = {0.0f}; 
             for(size_t a = 0; a < COARSE_FACTOR_ROW; a++){
                 A_registers[a] = shared_mem_A[tile_row0 + a][k];
             }
 
             // fill B registers
-            float B_registers[COARSE_FACTOR_COL];
+            float B_registers[COARSE_FACTOR_COL] = {0.0f}; 
             for(size_t b = 0; b < COARSE_FACTOR_COL; b++){
                 B_registers[b] = shared_mem_B[k][tile_col + b];
             }
