@@ -11,6 +11,7 @@ constexpr int BLOCK_K = 8;
 constexpr int COARSE_FACTOR_ROW = 8;
 constexpr int COARSE_FACTOR_COL = 8;
 constexpr int NUM_THREADS = BLOCK_M * BLOCK_N / (COARSE_FACTOR_ROW * COARSE_FACTOR_COL);
+constexpr int PATCHES_PER_ROW = BLOCK_N / COARSE_FACTOR_COL;
 
 __global__ void gemm_2d_thread_tiling_kernel(size_t M, size_t N, size_t K, float alpha, const float* __restrict__ A, const float* __restrict__ B, float beta, float* __restrict__ C){
 
@@ -25,8 +26,8 @@ __global__ void gemm_2d_thread_tiling_kernel(size_t M, size_t N, size_t K, float
     const int row = BLOCK_M * by + COARSE_FACTOR_ROW * (tx / BLOCK_M);
     const int col = BLOCK_N * bx + (tx % BLOCK_N);
 
-    const int tile_col  = tx % BLOCK_N; 
-    const int tile_row0 = COARSE_FACTOR_COL * (tx / BLOCK_N);
+    const int tile_col  = COARSE_FACTOR_COL * (tx % PATCHES_PER_ROW);
+    const int tile_row0 = COARSE_FACTOR_ROW * (tx / PATCHES_PER_ROW);
 
     __shared__ float shared_mem_A[BLOCK_M][BLOCK_K];
     __shared__ float shared_mem_B[BLOCK_K][BLOCK_N];
@@ -68,7 +69,38 @@ __global__ void gemm_2d_thread_tiling_kernel(size_t M, size_t N, size_t K, float
         }
 
         __syncthreads();
-        
+
+        for(int k = 0; k < BLOCK_K; k++){
+            
+            // fill A registers
+            float A_registers[COARSE_FACTOR_ROW]; 
+            for(int a = 0; a < COARSE_FACTOR_ROW; a++){
+                A_registers[a] = shared_mem_A[tile_row0 + a][k];
+            }
+
+            // fill B registers
+            float B_registers[COARSE_FACTOR_COL];
+            for(int b = 0; b < COARSE_FACTOR_COL; b++){
+                B_registers[b] = shared_mem_B[k][tile_col + b];
+            }
+
+            // the c loop
+            for(int i = 0; i < COARSE_FACTOR_ROW; i++){
+
+                float A_register_value = A_registers[i];
+
+                for(int j = 0; j < COARSE_FACTOR_COL; j++){
+
+                    Pvalue[i][j] += A_register_value * B_registers[j];
+
+                }
+
+            }
+
+
+        }
+        __syncthreads();
+
     }
 
 }
