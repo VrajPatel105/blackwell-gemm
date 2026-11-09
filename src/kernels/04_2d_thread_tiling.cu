@@ -23,9 +23,6 @@ __global__ void gemm_2d_thread_tiling_kernel(size_t M, size_t N, size_t K, float
     const int total_elements_in_shared_mem = BLOCK_M * BLOCK_K;
     const int total_passes = total_elements_in_shared_mem / NUM_THREADS;
 
-    const int row = BLOCK_M * by + COARSE_FACTOR_ROW * (tx / BLOCK_M);
-    const int col = BLOCK_N * bx + (tx % BLOCK_N);
-
     const int tile_col  = COARSE_FACTOR_COL * (tx % PATCHES_PER_ROW);
     const int tile_row0 = COARSE_FACTOR_ROW * (tx / PATCHES_PER_ROW);
 
@@ -100,6 +97,27 @@ __global__ void gemm_2d_thread_tiling_kernel(size_t M, size_t N, size_t K, float
 
         }
         __syncthreads();
+
+    }
+
+    // final write back loop
+    // all the final computed values are stored in the registers of their respective thread ids
+
+    for(int i = 0; i < COARSE_FACTOR_ROW; i++){
+        const int global_row =  by * BLOCK_M + tile_row0 + i; // this is the global row for the C matrix itself
+
+        for(int j = 0; j < COARSE_FACTOR_COL; j++){
+            const int global_col = bx * BLOCK_N + tile_col + j; // this will be the global col for the C matrix
+
+            if(global_row < M && global_col < N){
+                
+                float out = alpha * Pvalue[i][j];
+                int final_idx = global_row * N + global_col;
+                if(beta != 0.0f) out += beta * C[final_idx];
+                C[final_idx] = out;
+            }
+
+        }
 
     }
 
