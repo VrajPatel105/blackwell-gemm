@@ -133,3 +133,13 @@ void sgemm_04_2d_thread_tiling(int M, int N, int K, float alpha, const float* A,
     gemm_2d_thread_tiling_kernel<<<grid, block, 0, stream>>>(M, N, K, alpha, A, B, beta, C);
     CUDA_CHECK(cudaGetLastError());
 }
+
+
+// output
+
+// size              kernel          check  max_abs_err         ms   TFLOP/s  cuBLAS TF/s  % cuBLAS
+// 1000x777x513      2d_thread       PASS      3.24e-05     0.2294     3.475         7.80     44.57
+// 1024x1024x1024    2d_thread       PASS      8.39e-05     0.4705     4.564         9.86     46.27
+// 2048x2048x2048    2d_thread       PASS      1.75e-04     4.3145     3.982         8.74     45.55
+// 4096x4096x4096    2d_thread       PASS      0.00e+00    33.4082     4.114         7.29     56.40
+// 8192x8192x8192    2d_thread       PASS      0.00e+00   442.4131     2.485         5.92     42.01
