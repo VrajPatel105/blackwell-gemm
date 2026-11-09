@@ -13,7 +13,7 @@ constexpr int COARSE_FACTOR_COL = 8;
 constexpr int NUM_THREADS = BLOCK_M * BLOCK_N / (COARSE_FACTOR_ROW * COARSE_FACTOR_COL);
 constexpr int PATCHES_PER_ROW = BLOCK_N / COARSE_FACTOR_COL;
 
-__global__ void gemm_2d_thread_tiling_kernel(size_t M, size_t N, size_t K, float alpha, const float* __restrict__ A, const float* __restrict__ B, float beta, float* __restrict__ C){
+__global__ void sgemm_2d_thread_tiling_kernel(size_t M, size_t N, size_t K, float alpha, const float* __restrict__ A, const float* __restrict__ B, float beta, float* __restrict__ C){
 
     const int bx = blockIdx.x;
     const int by = blockIdx.y;
@@ -130,7 +130,7 @@ void sgemm_04_2d_thread_tiling(int M, int N, int K, float alpha, const float* A,
     
     const dim3 block(NUM_THREADS);
     const dim3 grid(ceil_div(N, BLOCK_N), ceil_div(M, BLOCK_M));
-    gemm_2d_thread_tiling_kernel<<<grid, block, 0, stream>>>(M, N, K, alpha, A, B, beta, C);
+    sgemm_2d_thread_tiling_kernel<<<grid, block, 0, stream>>>(M, N, K, alpha, A, B, beta, C);
     CUDA_CHECK(cudaGetLastError());
 }
 
