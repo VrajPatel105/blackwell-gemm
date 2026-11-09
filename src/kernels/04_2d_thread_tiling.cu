@@ -67,26 +67,26 @@ __global__ void gemm_2d_thread_tiling_kernel(size_t M, size_t N, size_t K, float
 
         __syncthreads();
 
-        for(int k = 0; k < BLOCK_K; k++){
+        for(size_t k = 0; k < BLOCK_K; k++){
             
             // fill A registers
             float A_registers[COARSE_FACTOR_ROW]; 
-            for(int a = 0; a < COARSE_FACTOR_ROW; a++){
+            for(size_t a = 0; a < COARSE_FACTOR_ROW; a++){
                 A_registers[a] = shared_mem_A[tile_row0 + a][k];
             }
 
             // fill B registers
             float B_registers[COARSE_FACTOR_COL];
-            for(int b = 0; b < COARSE_FACTOR_COL; b++){
+            for(size_t b = 0; b < COARSE_FACTOR_COL; b++){
                 B_registers[b] = shared_mem_B[k][tile_col + b];
             }
 
             // the c loop
-            for(int i = 0; i < COARSE_FACTOR_ROW; i++){
+            for(size_t i = 0; i < COARSE_FACTOR_ROW; i++){
 
                 float A_register_value = A_registers[i];
 
-                for(int j = 0; j < COARSE_FACTOR_COL; j++){
+                for(size_t j = 0; j < COARSE_FACTOR_COL; j++){
 
                     Pvalue[i][j] += A_register_value * B_registers[j];
 
