@@ -17,7 +17,13 @@ constexpr int PATCHES_PER_ROW = BLOCK_N / COARSE_FACTOR_COL;
 constexpr int A_FLOAT4_PER_ROW = BLOCK_K / 4; // A is 64 x 8 
 constexpr int B_FLOAT4_PER_ROW = BLOCK_N / 4; // B is 8 x 64
 constexpr int A_VEC_PASSES = (BLOCK_M * A_FLOAT4_PER_ROW) / NUM_THREADS;
-constexpr int B_VEC_PASSES = (BLOCK_N * B_FLOAT4_PER_ROW) / NUM_THREADS;
+constexpr int B_VEC_PASSES = (BLOCK_K * B_FLOAT4_PER_ROW) / NUM_THREADS;
+
+static_assert((BLOCK_M * A_FLOAT4_PER_ROW) % NUM_THREADS == 0, "A tile must split evenly across threads");
+static_assert((BLOCK_K * B_FLOAT4_PER_ROW) % NUM_THREADS == 0, "B tile must split evenly across threads");
+static_assert(COARSE_FACTOR_ROW % 4 == 0 && COARSE_FACTOR_COL % 4 == 0, "float4 shared reads need multiples of 4");
+
+
 // Adding a template since the vectorized load cant work with dimensions like 1000, 777, 513. so by template, we can have a if else version  of a kernel.
 // VEC = true : float4 global loads
 // VEC = false : implementation stays same as kernel 4 since K % 4 and N % 4 != 0
@@ -68,15 +74,15 @@ __global__ void sgemm_05_vectorized_smem_float4_kernel(size_t M, size_t N, size_
 
             for(int pass = 0; pass < B_VEC_PASSES; pass++){
 
-                const int B_view_tx = pass * (NUM_THREADS / B_FLOAT4_PER_ROW) + (tx / B_FLOAT4_PER_ROW);
-                const int B_view_ty = tx % B_FLOAT4_PER_ROW;
+                const int B_view_ty = pass * (NUM_THREADS / B_FLOAT4_PER_ROW) + (tx / B_FLOAT4_PER_ROW);
+                const int B_view_tx = tx % B_FLOAT4_PER_ROW;
 
                 size_t B_global_row = ph * BLOCK_K + B_view_ty;
                 size_t B_global_col = bx * BLOCK_N + B_view_tx * 4;
 
                 float4 b_vec = make_float4(0.0f, 0.0f, 0.0f, 0.0f);
                 if((B_global_row < K) && (B_global_col < N)){
-                    b_vec = *reinterpret_cast<const float4>(&B[B_global_row * N + B_global_col]);
+                    b_vec = *reinterpret_cast<const float4*>(&B[B_global_row * N + B_global_col]);
                 }
 
                 *reinterpret_cast<float4*>(&shared_mem_B[B_view_ty][B_view_tx * 4]) = b_vec;
@@ -139,8 +145,8 @@ __global__ void sgemm_05_vectorized_smem_float4_kernel(size_t M, size_t N, size_
 
             // fill B registers
             float B_registers[COARSE_FACTOR_COL] = {0.0f}; 
-            const float4 b_lo = reinterpret_cast<const float4*>(&shared_mem_B[k][tile_col]);
-            const float4 b_hi = reinterpret_cast<const float4*>(&shared_mem_B[k][tile_col + 4]);
+            const float4 b_lo = *reinterpret_cast<const float4*>(&shared_mem_B[k][tile_col]);
+            const float4 b_hi = *reinterpret_cast<const float4*>(&shared_mem_B[k][tile_col + 4]);
 
             B_registers[0] = b_lo.x;
             B_registers[1] = b_lo.y;
@@ -205,7 +211,7 @@ void sgemm_05_vectorized_smem_float4(int M, int N, int K, float alpha, const flo
     else{
         sgemm_05_vectorized_smem_float4_kernel<false><<<grid, block, 0, stream>>>(M, N, K, alpha, A, B, beta, C);
     }
-    
+
     CUDA_CHECK(cudaGetLastError());
 
 }

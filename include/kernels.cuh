@@ -9,7 +9,7 @@ void sgemm_01_coalesced (int, int, int, float, const float*, const float*, float
 void sgemm_02_tiling (int, int, int, float, const float*, const float*, float, float*, cudaStream_t);
 void sgemm_03_1d_thread_tiling (int, int, int, float, const float*, const float*, float, float*, cudaStream_t);
 void sgemm_04_2d_thread_tiling (int, int, int, float, const float*, const float*, float, float*, cudaStream_t);
-void sgemm_05_vectorized_smem_float4(int, int, int, float, const float*, const float*, float*, cudaStream_t);
+void sgemm_05_vectorized_smem_float4(int, int, int, float, const float*, const float*, float, float*, cudaStream_t);
 
 struct KernelEntry { int id; const char* name; GemmFn fn; };
 
