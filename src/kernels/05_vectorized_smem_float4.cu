@@ -48,7 +48,7 @@ __global__ void sgemm_05_vectorized_smem_float4_kernel(size_t M, size_t N, size_
             for(int pass = 0; pass < A_VEC_PASSES; pass++){
                 
                 const int A_view_ty = pass * (NUM_THREADS / A_FLOAT4_PER_ROW) +  (tx / A_FLOAT4_PER_ROW);
-                const int A_view_tx = tx / A_FLOAT4_PER_ROW;
+                const int A_view_tx = tx % A_FLOAT4_PER_ROW;
 
                 size_t A_global_row = by * BLOCK_M + A_view_ty;
                 size_t A_global_col = ph * BLOCK_K + A_view_tx * 4;
@@ -64,6 +64,22 @@ __global__ void sgemm_05_vectorized_smem_float4_kernel(size_t M, size_t N, size_
                 shared_mem_A[A_view_tx * 4 + 2][A_view_ty] = a_vec.z;
                 shared_mem_A[A_view_tx * 4 + 3][A_view_ty] = a_vec.w;
 
+            }
+
+            for(int pass = 0; pass < B_VEC_PASSES; pass++){
+
+                const int B_view_tx = pass * (NUM_THREADS / B_FLOAT4_PER_ROW) + (tx / B_FLOAT4_PER_ROW);
+                const int B_view_ty = tx % B_FLOAT4_PER_ROW;
+
+                size_t B_global_row = ph * BLOCK_K + B_view_ty;
+                size_t B_global_col = bx * BLOCK_N + B_view_tx * 4;
+
+                float4 b_vec = make_float4(0.0f, 0.0f, 0.0f, 0.0f);
+                if((B_global_row < K) && (B_global_col < N)){
+                    b_vec = *reinterpret_cast<const float4>(&B[B_global_row * N + B_global_col]);
+                }
+
+                *reinterpret_cast<float4*>(&shared_mem_B[B_view_ty][B_view_tx * 4]) = b_vec;
             }
 
         }
