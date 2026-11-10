@@ -125,16 +125,32 @@ __global__ void sgemm_05_vectorized_smem_float4_kernel(size_t M, size_t N, size_
             
             // fill A registers
             float A_registers[COARSE_FACTOR_ROW] = {0.0f}; 
-            for(size_t a = 0; a < COARSE_FACTOR_ROW; a++){
-                A_registers[a] = shared_mem_A[tile_row0 + a][k];
-            }
+            const float4 a_lo = *reinterpret_cast<const float4*>(&shared_mem_A[k][tile_row0]);
+            const float4 a_hi = *reinterpret_cast<const float4*>(&shared_mem_A[k][tile_row0 + 4]);
+            A_registers[0] = a_lo.x;
+            A_registers[1] = a_lo.y;
+            A_registers[2] = a_lo.z;
+            A_registers[3] = a_lo.w;
+
+            A_registers[4] = a_hi.x;
+            A_registers[5] = a_hi.y;
+            A_registers[6] = a_hi.z;
+            A_registers[7] = a_hi.w;
 
             // fill B registers
             float B_registers[COARSE_FACTOR_COL] = {0.0f}; 
-            for(size_t b = 0; b < COARSE_FACTOR_COL; b++){
-                B_registers[b] = shared_mem_B[k][tile_col + b];
-            }
+            const float4 b_lo = reinterpret_cast<const float4*>(&shared_mem_B[k][tile_col]);
+            const float4 b_hi = reinterpret_cast<const float4*>(&shared_mem_B[k][tile_col + 4]);
 
+            B_registers[0] = b_lo.x;
+            B_registers[1] = b_lo.y;
+            B_registers[2] = b_lo.z;
+            B_registers[3] = b_lo.w;
+
+            B_registers[4] = b_hi.x;
+            B_registers[5] = b_hi.y;
+            B_registers[6] = b_hi.z;
+            B_registers[7] = b_hi.w;
             // the c loop
             for(size_t i = 0; i < COARSE_FACTOR_ROW; i++){
 
@@ -181,7 +197,15 @@ void sgemm_05_vectorized_smem_float4(int M, int N, int K, float alpha, const flo
 
     const dim3 block(NUM_THREADS);
     const dim3 grid(ceil_div(N, BLOCK_N), ceil_div(M, BLOCK_M));
-    sgemm_05_vectorized_smem_float4_kernel<<<grid, block, 0, stream>>>(M, N, K, alpha, A, B, beta, C);
+
+    // float4 needs every row start 16-byte aligned: K % 4 for A, N % 4 for B
+    if(K % 4 == 0 && N % 4 == 0){
+        sgemm_05_vectorized_smem_float4_kernel<true><<<grid, block, 0, stream>>>(M, N, K, alpha, A, B, beta, C);
+    }
+    else{
+        sgemm_05_vectorized_smem_float4_kernel<false><<<grid, block, 0, stream>>>(M, N, K, alpha, A, B, beta, C);
+    }
+    
     CUDA_CHECK(cudaGetLastError());
 
 }
