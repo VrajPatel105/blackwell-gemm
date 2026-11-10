@@ -215,3 +215,12 @@ void sgemm_05_vectorized_smem_float4(int M, int N, int K, float alpha, const flo
     CUDA_CHECK(cudaGetLastError());
 
 }
+
+//output
+
+// size              kernel          check  max_abs_err         ms   TFLOP/s  cuBLAS TF/s  % cuBLAS
+// 1000x777x513      vectorized_smem_float4  PASS      3.24e-05     0.1508     5.286        12.00     44.05
+// 1024x1024x1024    vectorized_smem_float4  PASS      8.39e-05     0.1876    11.446        15.79     72.47
+// 2048x2048x2048    vectorized_smem_float4  PASS      1.75e-04     1.1409    15.058        22.61     66.59
+// 4096x4096x4096    vectorized_smem_float4  PASS      0.00e+00     8.3631    16.434        23.06     71.26
+// 8192x8192x8192    vectorized_smem_float4  PASS      0.00e+00    68.2565    16.109        24.70     65.22
