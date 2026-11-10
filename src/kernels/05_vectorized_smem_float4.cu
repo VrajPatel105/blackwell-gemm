@@ -13,8 +13,11 @@ constexpr int COARSE_FACTOR_COL = 8;
 constexpr int NUM_THREADS = BLOCK_M * BLOCK_N / (COARSE_FACTOR_ROW * COARSE_FACTOR_COL);
 constexpr int PATCHES_PER_ROW = BLOCK_N / COARSE_FACTOR_COL;
 
-constexpr int A_VEC_PASSES = 
-
+// this below vars are on tile level
+constexpr int A_FLOAT4_PER_ROW = BLOCK_K / 4; // A is 64 x 8 
+constexpr int B_FLOAT4_PER_ROW = BLOCK_N / 4; // B is 8 x 64
+constexpr int A_VEC_PASSES = (BLOCK_M * A_FLOAT4_PER_ROW) / NUM_THREADS;
+constexpr int B_VEC_PASSES = (BLOCK_N * B_FLOAT4_PER_ROW) / NUM_THREADS;
 // Adding a template since the vectorized load cant work with dimensions like 1000, 777, 513. so by template, we can have a if else version  of a kernel.
 // VEC = true : float4 global loads
 // VEC = false : implementation stays same as kernel 4 since K % 4 and N % 4 != 0
@@ -43,6 +46,23 @@ __global__ void sgemm_05_vectorized_smem_float4_kernel(size_t M, size_t N, size_
 
             // A: one float4 global load -> 4 scalar stores into the transposed tile
             for(int pass = 0; pass < A_VEC_PASSES; pass++){
+                
+                const int A_view_ty = pass * (NUM_THREADS / A_FLOAT4_PER_ROW) +  (tx / A_FLOAT4_PER_ROW);
+                const int A_view_tx = tx / A_FLOAT4_PER_ROW;
+
+                size_t A_global_row = by * BLOCK_M + A_view_ty;
+                size_t A_global_col = ph * BLOCK_K + A_view_tx * 4;
+
+                float4 a_vec = make_float4(0.0f, 0.0f, 0.0f, 0.0f);
+                
+                if((A_global_row < M) && (A_global_col < K)){
+                    a_vec = *reinterpret_cast<const float4*>(&A[A_global_row * K + A_global_col]);
+                }
+
+                shared_mem_A[A_view_tx * 4 + 0][A_view_ty] = a_vec.x;
+                shared_mem_A[A_view_tx * 4 + 1][A_view_ty] = a_vec.y;
+                shared_mem_A[A_view_tx * 4 + 2][A_view_ty] = a_vec.z;
+                shared_mem_A[A_view_tx * 4 + 3][A_view_ty] = a_vec.w;
 
             }
 
