@@ -1,4 +1,14 @@
-Fri Nov 13 14:30:39 2026       
+tag: rtx5080_laptop
+gpu: RTX 5080 Laptop
+date: 2026-11-13 20:30 UTC
+
+name, driver_version, memory.total [MiB], power.limit [W], temperature.gpu, clocks.max.graphics [MHz]
+NVIDIA GeForce RTX 5080 Laptop GPU, 617.42, 16303 MiB, [N/A], 38, 3090 MHz
+
+Cuda compilation tools, release 13.3, V13.3.73
+Build cuda_13.3.r13.3/compiler.38244171_0
+
+Fri Nov 13 15:30:36 2026       
 +-----------------------------------------------------------------------------------------+
 | NVIDIA-SMI 615.78.05              KMD Version: 617.42        CUDA UMD Version: 13.4     |
 +-----------------------------------------+------------------------+----------------------+
@@ -7,7 +17,7 @@ Fri Nov 13 14:30:39 2026
 |                                         |                        |               MIG M. |
 |=========================================+========================+======================|
 |   0  NVIDIA GeForce RTX 5080 ...    On  |   00000000:02:00.0 Off |                  N/A |
-| N/A   44C    P0             23W /  175W |       0MiB /  16303MiB |      0%      Default |
+| N/A   38C    P0             25W /  175W |       0MiB /  16303MiB |      0%      Default |
 |                                         |                        |                  N/A |
 +-----------------------------------------+------------------------+----------------------+
 

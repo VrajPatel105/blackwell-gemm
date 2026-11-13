@@ -1,0 +1,2 @@
+bandwidth: 6469.9 GB/s  (device-to-device copy, 1 GiB, 0.332 ms)
+fp32 peak: 66.28 TFLOP/s  (cuBLAS SGEMM 8192^3, 16.589 ms)
