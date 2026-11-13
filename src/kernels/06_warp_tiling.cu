@@ -41,6 +41,7 @@ static_assert(WSUB_M % THREAD_M == 0 && WSUB_N % THREAD_N == 0, "thread tiles mu
 static_assert((WSUB_M / THREAD_M) * (WSUB_N / THREAD_N) == WARP_SIZE, "one sub tile must be exactly one warp of lanes");
 static_assert(THREAD_M % 4 == 0 && THREAD_N % 4 == 0, "float4 shared reads need multiples of 4");
 
+template <bool VEC>
 __global__ void sgemm_06_warp_tiling_kernel(size_t M, size_t N, size_t K, float alpha, const float* __restrict__ A, const float* __restrict__ B, float beta, float* __restrict__ C){
 
     const int bx = blockIdx.x;
@@ -60,6 +61,87 @@ __global__ void sgemm_06_warp_tiling_kernel(size_t M, size_t N, size_t K, float 
     float Pvalue[WM_ITER * THREAD_M][WN_ITER * THREAD_N] = {0.0f};
     float A_registers[WM_ITER][THREAD_M];
     float B_registers[WN_ITER][THREAD_N];
+
+    for(int ph = 0; ph < ceil_div(K, BLOCK_K); ph++){
+
+        if constexpr (VEC){
+
+            // A: one float4 global load -> 4 scalar stores into the transposed tile
+            for(int pass = 0; pass < A_VEC_PASSES; pass++){
+                
+                const int A_view_ty = pass * (NUM_THREADS / A_FLOAT4_PER_ROW) +  (tx / A_FLOAT4_PER_ROW);
+                const int A_view_tx = tx % A_FLOAT4_PER_ROW;
+
+                size_t A_global_row = by * BLOCK_M + A_view_ty;
+                size_t A_global_col = ph * BLOCK_K + A_view_tx * 4;
+
+                float4 a_vec = make_float4(0.0f, 0.0f, 0.0f, 0.0f);
+                
+                if((A_global_row < M) && (A_global_col < K)){
+                    a_vec = *reinterpret_cast<const float4*>(&A[A_global_row * K + A_global_col]);
+                }
+
+                shared_mem_A[A_view_tx * 4 + 0][A_view_ty] = a_vec.x;
+                shared_mem_A[A_view_tx * 4 + 1][A_view_ty] = a_vec.y;
+                shared_mem_A[A_view_tx * 4 + 2][A_view_ty] = a_vec.z;
+                shared_mem_A[A_view_tx * 4 + 3][A_view_ty] = a_vec.w;
+
+            }
+
+            for(int pass = 0; pass < B_VEC_PASSES; pass++){
+
+                const int B_view_ty = pass * (NUM_THREADS / B_FLOAT4_PER_ROW) + (tx / B_FLOAT4_PER_ROW);
+                const int B_view_tx = tx % B_FLOAT4_PER_ROW;
+
+                size_t B_global_row = ph * BLOCK_K + B_view_ty;
+                size_t B_global_col = bx * BLOCK_N + B_view_tx * 4;
+
+                float4 b_vec = make_float4(0.0f, 0.0f, 0.0f, 0.0f);
+                if((B_global_row < K) && (B_global_col < N)){
+                    b_vec = *reinterpret_cast<const float4*>(&B[B_global_row * N + B_global_col]);
+                }
+
+                *reinterpret_cast<float4*>(&shared_mem_B[B_view_ty][B_view_tx * 4]) = b_vec;
+            }
+
+        }
+        else{
+            
+            for(int pass = 0; pass < total_passes; pass++){
+    
+                const int A_view_ty = pass * (NUM_THREADS / BLOCK_K) + (tx / BLOCK_K);
+                const int A_view_tx = tx % BLOCK_K;
+    
+                const int B_view_ty =  pass * (NUM_THREADS / BLOCK_N) + (tx / BLOCK_N);
+                const int B_view_tx = tx % BLOCK_N;
+    
+                size_t A_global_row = by * BLOCK_M + A_view_ty;
+                size_t A_global_col = ph * BLOCK_K + A_view_tx;
+                
+                size_t B_global_row = ph * BLOCK_K + B_view_ty;
+                size_t B_global_col = bx * BLOCK_N + B_view_tx;
+    
+                if((A_global_row < M) && (A_global_col < K)){
+                    shared_mem_A[A_view_tx][A_view_ty] = A[A_global_row * K + A_global_col];
+                }
+                else{
+                    shared_mem_A[A_view_tx][A_view_ty] = 0.0f;
+                }
+                    
+                if((B_global_row < K) && (B_global_col < N)){
+                    shared_mem_B[B_view_ty][B_view_tx] = B[B_global_row * N + B_global_col];
+                }
+                else{
+                    shared_mem_B[B_view_ty][B_view_tx] = 0.0f;
+                }
+    
+            }
+
+        }
+
+        __syncthreads();
+
+        
 
 }
 
