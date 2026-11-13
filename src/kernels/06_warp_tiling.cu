@@ -141,7 +141,51 @@ __global__ void sgemm_06_warp_tiling_kernel(size_t M, size_t N, size_t K, float 
 
         __syncthreads();
 
-        
+        #pragma unroll
+        for(int k = 0; k < BLOCK_K; k++){
+            #pragma unroll
+            for(int wm = 0; wm < WM_ITER; wm++){
+                const int a_start = warp_row0 + wm * WSUB_M + lane_row * THREAD_M;
+                #pragma unroll
+                for(int v = 0; v < THREAD_M; v += 4){
+                    const float4 a4 = *reinterpret_cast<const float4*>(&shared_mem_A[k][a_start + v]);
+                    A_registers[wm][v + 0] = a4.x;
+                    A_registers[wm][v + 1] = a4.y;
+                    A_registers[wm][v + 2] = a4.z;
+                    A_registers[wm][v + 3] = a4.w;
+                }
+            }
+        }
+
+        #pragma unroll
+        for(int wn = 0; wn < WN_ITER; wn++){
+            const int b_start = warp_col0 + wn * WSUB_N + lane_col * THREAD_N;
+            #pragma unroll
+            for(int v = 0; v < THREAD_N; v += 4){
+                const float4 b4 = *reinterpret_cast<const float4*>(&shared_mem_B[k][b_start + v]);
+                B_registers[wn][v + 0] = b4.x;
+                B_registers[wn][v + 1] = b4.y;
+                B_registers[wn][v + 2] = b4.z;
+                B_registers[wn][v + 3] = b4.w;
+            }
+        }
+
+        // outer product, once per (wm, wn) sub tile
+        #pragma unroll
+        for(int wm = 0; wm < WM_ITER; wm++){
+            #pragma unroll
+            for(int wn = 0; wn < WN_ITER; wn++){
+                #pragma unroll
+                for(int i = 0; i < THREAD_M; i++){
+                    #pragma unroll
+                    for(int j = 0; j < THREAD_N; j++){
+                        Pvalue[wm * THREAD_M + i][wn * THREAD_N + j] += A_registers[wm][i] * B_registers[wn][j];
+                    }
+                }
+            }
+        }
+    }
+    __syncthreads();
 
 }
 
