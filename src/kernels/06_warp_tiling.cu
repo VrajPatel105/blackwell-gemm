@@ -10,7 +10,7 @@ constexpr int BLOCK_M = 64;
 constexpr int BLOCK_N = 64;
 constexpr int BLOCK_K = 8;
 
-// warp level: which parts of the block tile one warp ownss
+// warp level: which parts of the block tile one warp owns
 constexpr int WARP_SIZE = 32;
 constexpr int WARP_M = 32;
 constexpr int WARP_N = 64;
@@ -28,7 +28,7 @@ constexpr int WARPS_PER_ROW = BLOCK_N / WARP_N;  // 1
 constexpr int NUM_THREADS = (BLOCK_M / WARP_M) * (BLOCK_N / WARP_N) * WARP_SIZE;  // 64
 
 // float4 loading
-constexpr int A_FLOAT4_PER_ROW = BLOCK_K / 4; // A is 64 x 8 
+constexpr int A_FLOAT4_PER_ROW = BLOCK_K / 4; // A is 64 x 8
 constexpr int B_FLOAT4_PER_ROW = BLOCK_N / 4; // B is 8 x 64
 constexpr int A_VEC_PASSES = (BLOCK_M * A_FLOAT4_PER_ROW) / NUM_THREADS;
 constexpr int B_VEC_PASSES = (BLOCK_K * B_FLOAT4_PER_ROW) / NUM_THREADS;
@@ -68,7 +68,7 @@ __global__ void sgemm_06_warp_tiling_kernel(size_t M, size_t N, size_t K, float 
 
             // A: one float4 global load -> 4 scalar stores into the transposed tile
             for(int pass = 0; pass < A_VEC_PASSES; pass++){
-                
+
                 const int A_view_ty = pass * (NUM_THREADS / A_FLOAT4_PER_ROW) +  (tx / A_FLOAT4_PER_ROW);
                 const int A_view_tx = tx % A_FLOAT4_PER_ROW;
 
@@ -76,7 +76,7 @@ __global__ void sgemm_06_warp_tiling_kernel(size_t M, size_t N, size_t K, float 
                 size_t A_global_col = ph * BLOCK_K + A_view_tx * 4;
 
                 float4 a_vec = make_float4(0.0f, 0.0f, 0.0f, 0.0f);
-                
+
                 if((A_global_row < M) && (A_global_col < K)){
                     a_vec = *reinterpret_cast<const float4*>(&A[A_global_row * K + A_global_col]);
                 }
@@ -106,35 +106,38 @@ __global__ void sgemm_06_warp_tiling_kernel(size_t M, size_t N, size_t K, float 
 
         }
         else{
-            
+
+            const int total_elements_in_shared_mem = BLOCK_M * BLOCK_K;
+            const int total_passes = total_elements_in_shared_mem / NUM_THREADS;
+
             for(int pass = 0; pass < total_passes; pass++){
-    
+
                 const int A_view_ty = pass * (NUM_THREADS / BLOCK_K) + (tx / BLOCK_K);
                 const int A_view_tx = tx % BLOCK_K;
-    
+
                 const int B_view_ty =  pass * (NUM_THREADS / BLOCK_N) + (tx / BLOCK_N);
                 const int B_view_tx = tx % BLOCK_N;
-    
+
                 size_t A_global_row = by * BLOCK_M + A_view_ty;
                 size_t A_global_col = ph * BLOCK_K + A_view_tx;
-                
+
                 size_t B_global_row = ph * BLOCK_K + B_view_ty;
                 size_t B_global_col = bx * BLOCK_N + B_view_tx;
-    
+
                 if((A_global_row < M) && (A_global_col < K)){
                     shared_mem_A[A_view_tx][A_view_ty] = A[A_global_row * K + A_global_col];
                 }
                 else{
                     shared_mem_A[A_view_tx][A_view_ty] = 0.0f;
                 }
-                    
+
                 if((B_global_row < K) && (B_global_col < N)){
                     shared_mem_B[B_view_ty][B_view_tx] = B[B_global_row * N + B_global_col];
                 }
                 else{
                     shared_mem_B[B_view_ty][B_view_tx] = 0.0f;
                 }
-    
+
             }
 
         }
@@ -143,6 +146,8 @@ __global__ void sgemm_06_warp_tiling_kernel(size_t M, size_t N, size_t K, float 
 
         #pragma unroll
         for(int k = 0; k < BLOCK_K; k++){
+
+            // A: THREAD_M = 8 values of row k of the transposed tile -> two float4 reads
             #pragma unroll
             for(int wm = 0; wm < WM_ITER; wm++){
                 const int a_start = warp_row0 + wm * WSUB_M + lane_row * THREAD_M;
@@ -155,37 +160,39 @@ __global__ void sgemm_06_warp_tiling_kernel(size_t M, size_t N, size_t K, float 
                     A_registers[wm][v + 3] = a4.w;
                 }
             }
-        }
 
-        #pragma unroll
-        for(int wn = 0; wn < WN_ITER; wn++){
-            const int b_start = warp_col0 + wn * WSUB_N + lane_col * THREAD_N;
-            #pragma unroll
-            for(int v = 0; v < THREAD_N; v += 4){
-                const float4 b4 = *reinterpret_cast<const float4*>(&shared_mem_B[k][b_start + v]);
-                B_registers[wn][v + 0] = b4.x;
-                B_registers[wn][v + 1] = b4.y;
-                B_registers[wn][v + 2] = b4.z;
-                B_registers[wn][v + 3] = b4.w;
-            }
-        }
-
-        // outer product, once per (wm, wn) sub tile
-        #pragma unroll
-        for(int wm = 0; wm < WM_ITER; wm++){
+            // B: one float4 per sub tile
             #pragma unroll
             for(int wn = 0; wn < WN_ITER; wn++){
+                const int b_start = warp_col0 + wn * WSUB_N + lane_col * THREAD_N;
                 #pragma unroll
-                for(int i = 0; i < THREAD_M; i++){
+                for(int v = 0; v < THREAD_N; v += 4){
+                    const float4 b4 = *reinterpret_cast<const float4*>(&shared_mem_B[k][b_start + v]);
+                    B_registers[wn][v + 0] = b4.x;
+                    B_registers[wn][v + 1] = b4.y;
+                    B_registers[wn][v + 2] = b4.z;
+                    B_registers[wn][v + 3] = b4.w;
+                }
+            }
+
+            // outer product, once per (wm, wn) sub tile
+            #pragma unroll
+            for(int wm = 0; wm < WM_ITER; wm++){
+                #pragma unroll
+                for(int wn = 0; wn < WN_ITER; wn++){
                     #pragma unroll
-                    for(int j = 0; j < THREAD_N; j++){
-                        Pvalue[wm * THREAD_M + i][wn * THREAD_N + j] += A_registers[wm][i] * B_registers[wn][j];
+                    for(int i = 0; i < THREAD_M; i++){
+                        #pragma unroll
+                        for(int j = 0; j < THREAD_N; j++){
+                            Pvalue[wm * THREAD_M + i][wn * THREAD_N + j] += A_registers[wm][i] * B_registers[wn][j];
+                        }
                     }
                 }
             }
         }
+
+        __syncthreads();
     }
-    __syncthreads();
 
     // the final write back loop
     #pragma unroll
