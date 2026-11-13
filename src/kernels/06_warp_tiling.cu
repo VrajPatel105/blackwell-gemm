@@ -187,8 +187,29 @@ __global__ void sgemm_06_warp_tiling_kernel(size_t M, size_t N, size_t K, float 
     }
     __syncthreads();
 
-}
+    // the final write back loop
+    #pragma unroll
+    for(int wm = 0; wm < WM_ITER; wm++){
+        #pragma unroll
+        for(int wn = 0; wn < WN_ITER; wn++){
+            #pragma unroll
+            for(int i = 0; i < THREAD_M; i++){
+                const int global_row = by * BLOCK_M + warp_row0 + wm * WSUB_M + lane_row * THREAD_M + i;
+                #pragma unroll
+                for(int j = 0; j < THREAD_N; j++){
+                    const int global_col = bx * BLOCK_N + warp_col0 + wn * WSUB_N + lane_col * THREAD_N + j;
 
+                    if(global_row < M && global_col < N){
+                        float out = alpha * Pvalue[wm * THREAD_M + i][wn * THREAD_N + j];
+                        int final_idx = global_row * N + global_col;
+                        if(beta != 0.0f) out += beta * C[final_idx];
+                        C[final_idx] = out;
+                    }
+                }
+            }
+        }
+    }
+}
 }
 
 
