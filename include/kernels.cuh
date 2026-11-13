@@ -21,6 +21,6 @@ inline const KernelEntry KERNELS[] = {
   {3, "1d_thread", sgemm_03_1d_thread_tiling},
   {4, "2d_thread", sgemm_04_2d_thread_tiling},
   {5, "vectorized_smem_float4", sgemm_05_vectorized_smem_float4},
-  {5, "warp_tiling", sgemm_06_warp_tiling}
+  {6, "warp_tiling", sgemm_06_warp_tiling}
 };
 inline constexpr int NUM_KERNELS = sizeof(KERNELS) / sizeof(KERNELS[0]);
