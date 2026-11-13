@@ -10,7 +10,56 @@ constexpr int BLOCK_M = 64;
 constexpr int BLOCK_N = 64;
 constexpr int BLOCK_K = 8;
 
+// warp level: which parts of the block tile one warp ownss
+constexpr int WARP_SIZE = 32;
+constexpr int WARP_M = 32;
+constexpr int WARP_N = 64;
+constexpr int WM_ITER = 1;
+constexpr int WN_ITER = 2;
+constexpr int WSUB_M = WARP_M / WM_ITER;
+constexpr int WSUB_N = WARP_N / WN_ITER;
+
+// thread level: what one lane computes inside ONE sub tile
+constexpr int THREAD_M = 8;
+constexpr int THREAD_N = 4;
+constexpr int LANES_PER_ROW = WSUB_N / THREAD_N; // 8 lanes side by side in a sub tile
+
+constexpr int WARPS_PER_ROW = BLOCK_N / WARP_N;  // 1
+constexpr int NUM_THREADS = (BLOCK_M / WARP_M) * (BLOCK_N / WARP_N) * WARP_SIZE;  // 64
+
+// float4 loading
+constexpr int A_FLOAT4_PER_ROW = BLOCK_K / 4; // A is 64 x 8 
+constexpr int B_FLOAT4_PER_ROW = BLOCK_N / 4; // B is 8 x 64
+constexpr int A_VEC_PASSES = (BLOCK_M * A_FLOAT4_PER_ROW) / NUM_THREADS;
+constexpr int B_VEC_PASSES = (BLOCK_K * B_FLOAT4_PER_ROW) / NUM_THREADS;
+
+static_assert((BLOCK_M * A_FLOAT4_PER_ROW) % NUM_THREADS == 0, "A tile must split evenly across threads");
+static_assert((BLOCK_K * B_FLOAT4_PER_ROW) % NUM_THREADS == 0, "B tile must split evenly across threads");
+static_assert(BLOCK_M % WARP_M == 0 && BLOCK_N % WARP_N == 0, "warp tiles must tile the block tile");
+static_assert(WARP_M % WM_ITER == 0 && WARP_N % WN_ITER == 0, "sub tiles must tile the warp tile");
+static_assert(WSUB_M % THREAD_M == 0 && WSUB_N % THREAD_N == 0, "thread tiles must tile the sub tile");
+static_assert((WSUB_M / THREAD_M) * (WSUB_N / THREAD_N) == WARP_SIZE, "one sub tile must be exactly one warp of lanes");
+static_assert(THREAD_M % 4 == 0 && THREAD_N % 4 == 0, "float4 shared reads need multiples of 4");
+
 __global__ void sgemm_06_warp_tiling_kernel(size_t M, size_t N, size_t K, float alpha, const float* __restrict__ A, const float* __restrict__ B, float beta, float* __restrict__ C){
+
+    const int bx = blockIdx.x;
+    const int by = blockIdx.y;
+    const int tx = threadIdx.x;
+
+    const int warp_idx = tx / WARP_SIZE;
+    const int lane = tx % WARP_SIZE;
+    const int warp_row0 = (warp_idx/WARPS_PER_ROW) * WARP_M;
+    const int warp_col0 = (warp_idx % WARPS_PER_ROW) * WARP_N;
+    const int lane_row = lane / LANES_PER_ROW;
+    const int lane_col = lane % LANES_PER_ROW;
+
+    __shared__ __align__(16) float shared_mem_A[BLOCK_K][BLOCK_M]; // this is the transposed view
+    __shared__ __align__(16) float shared_mem_B[BLOCK_K][BLOCK_N]; // B shared mem stays the same since it's already in correct format (row major)
+
+    float Pvalue[WM_ITER * THREAD_M][WN_ITER * THREAD_N] = {0.0f};
+    float A_registers[WM_ITER][THREAD_M];
+    float B_registers[WN_ITER][THREAD_N];
 
 }
 
