@@ -233,3 +233,11 @@ void sgemm_06_warp_tiling(int M, int N, int K, float alpha, const float* A, cons
     }
     CUDA_CHECK(cudaGetLastError());
 }
+
+// output
+// size              kernel          check  max_abs_err         ms   TFLOP/s  cuBLAS TF/s  % cuBLAS
+// 1000x777x513      warp_tiling     PASS      3.24e-05     0.1221     6.530        12.11     53.92
+// 1024x1024x1024    warp_tiling     PASS      8.39e-05     0.1702    12.614        15.90     79.36
+// 2048x2048x2048    warp_tiling     PASS      1.75e-04     1.0447    16.445        22.64     72.63
+// 4096x4096x4096    warp_tiling     PASS      0.00e+00     7.7681    17.693        23.09     76.61
+// 8192x8192x8192    warp_tiling     PASS      0.00e+00    64.4229    17.067        24.53     69.58
